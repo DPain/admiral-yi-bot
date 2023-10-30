@@ -1,7 +1,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, REST, Routes } = require('discord.js');
-const singleton = require('./singleton.js');
+const log = require('./log.js');
+
+/**
+ * SingletonManager to be used within the Bot to manage singletons.
+ * @const {SingletonManager}
+ */
+const SingletonManager = require('./singleton_manager.js');
+
 /**
  * Directory of where to scan for plugins.
  * @const {string}
@@ -20,51 +27,53 @@ module.exports = class Bot {
         this.token = token;
         this.clientId = clientId;
         this.guildId = guildId;
+        this.sm = new SingletonManager();
     }
 
     /**
      * Registers commands located in the /src/plugins folder as a discord bot command.
      */
     registerPlugins() {
-        console.log('Registering Plugins!');
+        log.info('Registering Plugins!');
         let commands = [];
         // Grab all the command folders from the commands directory you created earlier
         const foldersPath = PLUGIN_DIR;
-        console.log(`foldersPath: ${foldersPath}`);
+        log.info(`foldersPath: ${foldersPath}`);
         const commandFolders = fs.readdirSync(foldersPath);
-    
+
         for (const folder of commandFolders) {
             // Grab all the command files from the commands directory you createda earlier
+            log.info(`Scanning Plugin: ${folder}`);
             const commandsPath = path.join(foldersPath, folder);
             const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
             // Grab the SlashCommandBuilder#toJSON() output of each command's data for deployment
             for (const file of commandFiles) {
                 const filePath = path.join(commandsPath, file);
-                console.log(filePath);
+                log.info(`Registering: ${file}`);
                 const command = require(filePath);
                 if ('data' in command && 'execute' in command) {
                     commands.push(command.data.toJSON());
                 } else {
-                    console.log(`[WARNING] The command at ${filePath} is missing a required "dataS" or "execute" property.`);
+                    log.info(`[WARNING] The command at ${filePath} is missing a required "dataS" or "execute" property.`);
                 }
             }
         }
-    
+
         // Construct and prepare an instance of the REST module
         const rest = new REST().setToken(this.token);
-    
+
         // and deploy your commands!
         (async () => {
             try {
-                console.log(`Started refreshing ${commands.length} application (/) commands.`);
-    
+                log.info(`Started refreshing ${commands.length} application (/) commands.`);
+
                 // The put method is used to fully refresh all commands in the guild with the current set
                 const data = await rest.put(
                     Routes.applicationGuildCommands(this.clientId, this.guildId),
                     { body: commands },
                 );
-    
-                console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+
+                log.info(`Successfully reloaded ${data.length} application (/) commands.`);
             } catch (error) {
                 // And of course, make sure you catch and log any errors!
                 console.error(error);
@@ -79,6 +88,9 @@ module.exports = class Bot {
         // Create a new client instance
         this.client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+        // Share client as singleton.
+        this.sm.client = this.client;
+
         this.client.commands = new Collection();
         const foldersPath = PLUGIN_DIR;
         const commandFolders = fs.readdirSync(foldersPath);
@@ -92,7 +104,7 @@ module.exports = class Bot {
                 if ('data' in command && 'execute' in command) {
                     this.client.commands.set(command.data.name, command);
                 } else {
-                    console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+                    log.info(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
                 }
             }
         }
@@ -100,12 +112,12 @@ module.exports = class Bot {
         // When the client is ready, run this code (only once)
         // We use 'c' for the event parameter to keep it separate from the already defined 'client'
         this.client.once(Events.ClientReady, c => {
-            console.log(`Ready! Logged in as ${c.user.tag}`);
+            log.info(`Ready! Logged in as ${c.user.tag}`);
         });
 
         this.client.on(Events.InteractionCreate, async interaction => {
             if (!interaction.isChatInputCommand()) return;
-            console.log(this.client.commands);
+            log.info(this.client.commands);
 
             const command = this.client.commands.get(interaction.commandName);
 
@@ -125,8 +137,5 @@ module.exports = class Bot {
 
         //Log in to Discord with your client's token
         this.client.login(this.token);
-
-        // Share client as singleton.
-        singleton.client = this.client;
     }
 }

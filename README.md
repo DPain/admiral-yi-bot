@@ -1,7 +1,7 @@
 # Admiral Yi Bot
 The greatest and most amazing discord you'll ever see.
 
-`node index.js registerCommands`
+`node index.js registerPlugins`
 
 ## Dependency
 * node.js
