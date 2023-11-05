@@ -27,7 +27,37 @@ module.exports = class Bot {
         this.token = token;
         this.clientId = clientId;
         this.guildId = guildId;
+        this.commands = new Collection();
         this.sm = new SingletonManager();
+
+        this.scanPlugins();
+    }
+
+    /**
+     * Scans the Plugin directory for all the commands the bot will use.
+     */
+    scanPlugins() {
+        const foldersPath = PLUGIN_DIR;
+        const commandFolders = fs.readdirSync(foldersPath);
+
+        for (const folder of commandFolders) {
+            const commandsPath = path.join(foldersPath, folder);
+            const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+            for (const file of commandFiles) {
+                const filePath = path.join(commandsPath, file);
+                const command = require(filePath);
+                if ('data' in command && 'execute' in command) {
+                    this.commands.set(command.data.name, command);
+                } else {
+                    log.warn(`The command at ${filePath} is missing a required "data" or "execute" property.`);
+                }
+            }
+        }
+
+        let names = this.commands.map(command => {
+            return command.data.name
+        })
+        log.info(`Commands: ${JSON.stringify(names)}`);
     }
 
     /**
@@ -91,24 +121,6 @@ module.exports = class Bot {
         // Share client as singleton.
         this.sm.client = this.client;
 
-        this.client.commands = new Collection();
-        const foldersPath = PLUGIN_DIR;
-        const commandFolders = fs.readdirSync(foldersPath);
-
-        for (const folder of commandFolders) {
-            const commandsPath = path.join(foldersPath, folder);
-            const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-            for (const file of commandFiles) {
-                const filePath = path.join(commandsPath, file);
-                const command = require(filePath);
-                if ('data' in command && 'execute' in command) {
-                    this.client.commands.set(command.data.name, command);
-                } else {
-                    log.info(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
-                }
-            }
-        }
-
         // When the client is ready, run this code (only once)
         // We use 'c' for the event parameter to keep it separate from the already defined 'client'
         this.client.once(Events.ClientReady, c => {
@@ -117,13 +129,15 @@ module.exports = class Bot {
 
         this.client.on(Events.InteractionCreate, async interaction => {
             if (!interaction.isChatInputCommand()) return;
-            log.info(this.client.commands);
 
-            const command = this.client.commands.get(interaction.commandName);
+            const command = this.commands.get(interaction.commandName);
 
             if (!command) return;
 
             try {
+                let user = interaction.member.user;
+                let guild = interaction.member.guild;
+                log.info(`Received Interaction: [${interaction}] by user: ${user.username} (ID: ${user.id}) in guild: ${guild.name} (ID: ${guild.id})`);
                 await command.execute(interaction);
             } catch (error) {
                 console.error(error);
